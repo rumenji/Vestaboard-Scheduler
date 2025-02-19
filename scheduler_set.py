@@ -34,6 +34,7 @@ job_defaults = {
     'misfire_grace_time': 90
 }
 scheduler = BackgroundScheduler(jobstores={'default': job_store}, executors=executors, job_defaults=job_defaults)
+scheduler.start()  # Start the scheduler
 
 def read_excel(file_path):
     '''Read the uploaded spreadsheet. Checks is the required columns are in the spreadsheet.
@@ -121,7 +122,6 @@ def format_vestaboard_message(message, time, last):
             )
             # Return the formatted list
             if formatted_msg.status_code == 200:
-                print(CURRENTLY_DISPLAYED_TRIPS)
                 return formatted_msg.json()
             else:
                 raise Exception(f"Failed to format message: {formatted_msg.status_code}")
@@ -156,6 +156,8 @@ def schedule_trips(trips):
         raise Exception('No trips in the uploaded file!')
     # A variable to set the last departure\arival time. Used to set when the default message should be displayed
     last_departure = datetime.datetime.now().time()
+    # Get the current time to make sure only future trips are scheduled
+    now = datetime.datetime.now()
     # A list to keep all skipped trips - trips that have already passed.
     skipped_trips = []
     # Iterate over the trips and schedule the jobs for each.
@@ -178,8 +180,6 @@ def schedule_trips(trips):
                 customer_name = get_last_name(file_customer)
                 # Uses the helper function to convert the departure/arrival time from string in the format HH:MM AM/PM /12-hour/ or HH:MM /24-hour/ to datetime object time only.
                 departure_time = is_24_hour_format(time_to_show)
-                # Get the current time to make sure only future trips are scheduled
-                now = datetime.datetime.now()
                 # Add date to the time of the trips
                 departure = datetime.datetime.combine(now.date(), departure_time)
                 # Calculate if the date and time of the trip are in the future
@@ -204,7 +204,7 @@ def schedule_trips(trips):
             except Exception as e:
                 raise e
     #Append the end default message to display 30 minutes after the last departure/arrival
-    try:  
+    try:
         scheduler.add_job(
                     post_to_vestaboard, 
                     'date', 
@@ -217,4 +217,3 @@ def schedule_trips(trips):
     # Return the skipped trips list to the route
     return skipped_trips
 
-scheduler.start()  # Start the scheduler
