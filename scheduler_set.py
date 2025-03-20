@@ -34,7 +34,6 @@ job_defaults = {
     'misfire_grace_time': 90
 }
 scheduler = BackgroundScheduler(jobstores={'default': job_store}, executors=executors, job_defaults=job_defaults)
-scheduler.start()  # Start the scheduler
 
 def read_excel(file_path):
     '''Read the uploaded spreadsheet. Checks is the required columns are in the spreadsheet.
@@ -50,7 +49,10 @@ def read_excel(file_path):
         data = []
         for row in sheet.iter_rows(min_row=2, values_only=True):
             data.append(dict(zip(headers, row)))
-        data = [trip for trip in data if trip['Customer type'] == 'Retail' and any([trip['Orig'] == SEARCH_VALUE, trip['Dest'] == SEARCH_VALUE])]
+
+        today_date = datetime.datetime.today().strftime('%m/%d/%y')
+      
+        data = [trip for trip in data if trip['Customer type'] == 'Retail' and any([trip['Orig'] == SEARCH_VALUE, trip['Dest'] == SEARCH_VALUE]) and trip['Start LT'] == today_date]
         if len(data) == 0:
             raise Exception('No matching trips in the uploaded file!')
         return data
@@ -204,7 +206,7 @@ def schedule_trips(trips):
             except Exception as e:
                 raise e
     #Append the end default message to display 30 minutes after the last departure/arrival
-    try:
+    try:  
         scheduler.add_job(
                     post_to_vestaboard, 
                     'date', 
@@ -217,3 +219,4 @@ def schedule_trips(trips):
     # Return the skipped trips list to the route
     return skipped_trips
 
+scheduler.start()  # Start the scheduler

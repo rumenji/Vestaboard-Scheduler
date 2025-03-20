@@ -19,9 +19,7 @@ def list_jobs():
     get_flashed_messages()
     form = FileUploadForm()
     update_form = EditTimeForm()
-    scheduled_jobs=scheduler.get_jobs()
-    print(scheduled_jobs)
-    return render_template('upload.html', form=form, update_form=update_form, jobs=scheduled_jobs)
+    return render_template('upload.html', form=form, update_form=update_form, jobs=scheduler.get_jobs())
 
 ##############################################################################
 # Post file upload route
@@ -61,8 +59,7 @@ def upload_file():
 @app.route('/delete_job/<job_id>', methods=['POST'])
 def delete_job(job_id):
     try:
-        job = scheduler.get_job(job_id)
-        if job:
+        if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             flash(f'Trip {job_id} deleted!', 'warning')
         return redirect(url_for('list_jobs'))
