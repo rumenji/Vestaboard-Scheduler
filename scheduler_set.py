@@ -12,10 +12,8 @@ from helpers import get_last_name, replace_sides, is_24_hour_format
 load_dotenv()
 
 # Load predifined environment variables
-# Vestaboard subscription ID, key, and secret - obtained from Vetaboard
-SUBSCRIPTION_ID = os.getenv("SUBSCRIPTION_ID")
-X_VESTABOARD_API_KEY = os.getenv("X-VESTABOARD-API-KEY")
-X_VESTABOARD_API_SECRET = os.getenv("X-VESTABOARD-API-SECRET")
+# Vestaboard API token - obtained from Vetaboard
+X-VESTABOARD-TOKEN = os.getenv("X-VESTABOARD-TOKEN")
 # Default message to show when no trips are currently scheduled, and color for the border
 DEFAULT_MESSAGE = os.getenv('DEFAULT_MESSAGE')
 DEFAULT_MESSAGE_COLOR = os.getenv('DEFAULT_MESSAGE_COLOR')
@@ -63,23 +61,27 @@ def read_excel(file_path):
 # Vestaboard cannot add - only replace what is displayed.
 CURRENTLY_DISPLAYED_TRIPS = []
 
+import datetime
+import requests
+
 def format_vestaboard_message(message, time, last):
     try:
         global CURRENTLY_DISPLAYED_TRIPS
+        
         if last:
             CURRENTLY_DISPLAYED_TRIPS = []
+            # Updated to the consolidated cloud domain for VBML
             formatted_msg = requests.post(
-                "https://vbml.vestaboard.com/compose",
+                "https://cloud.vestaboard.com/vbml/compose",
                 headers={"Content-Type": "application/json"},
                 json={"components": [{
-			                    "style": {
-				                "justify": "center",
-                                "align": "center"
-                                },
-                                "template": message
-                                }]}
-                )
-            
+                    "style": {
+                        "justify": "center",
+                        "align": "center"
+                    },
+                    "template": message
+                }]}
+            )
             if formatted_msg.status_code == 200:
                 return replace_sides(formatted_msg.json(), DEFAULT_MESSAGE_COLOR)
             else:
@@ -89,46 +91,49 @@ def format_vestaboard_message(message, time, last):
             if len(CURRENTLY_DISPLAYED_TRIPS) == 0:
                 CURRENTLY_DISPLAYED_TRIPS.append({
                     "msg": {
-                    "style": {
-                    "height": 1,
-                    "width": 22
+                        "style": {
+                            "height": 1,
+                            "width": 22
+                        },
+                        "template": TITLE
                     },
-                    "template": TITLE
-                },
-                "time": datetime.datetime.strptime('11:59 pm', '%I:%M %p').time()
+                    "time": datetime.datetime.strptime('11:59 pm', '%I:%M %p').time()
                 })
-            # If it is not empty - filter the trips by time and remove the ones that have already left 15 minutes ago.
+            # If it is not empty - filter by time and remove older trips
             else:
                 already_left = datetime.datetime.now() - datetime.timedelta(minutes=15)
                 upcoming_trips = [trip for trip in CURRENTLY_DISPLAYED_TRIPS if trip['time'] > already_left.time()]
                 CURRENTLY_DISPLAYED_TRIPS = upcoming_trips
+
             # Add the current trip to list
-            CURRENTLY_DISPLAYED_TRIPS.append(
-                    {
-                        "msg": {
-                        "style": {
+            CURRENTLY_DISPLAYED_TRIPS.append({
+                "msg": {
+                    "style": {
                         "height": 1,
                         "width": 22,
                         "align": "center"
-                        },
-                        "template": message
                     },
-                    "time": time
-                    }
-                )
-            # Send the request to the Vestaboard format API
+                    "template": message
+                },
+                "time": time
+            })
+
+            # Updated to the consolidated cloud domain for VBML
             formatted_msg = requests.post(
-                "https://vbml.vestaboard.com/compose",
+                "https://cloud.vestaboard.com/vbml/compose",
                 headers={"Content-Type": "application/json"},
                 json={"components": [trip['msg'] for trip in CURRENTLY_DISPLAYED_TRIPS]}
             )
-            # Return the formatted list
+            
+            # Return the formatted list (the 2D array of character IDs)
             if formatted_msg.status_code == 200:
                 return formatted_msg.json()
             else:
                 raise Exception(f"Failed to format message: {formatted_msg.status_code}")
+                
     except Exception as e:
         raise e
+
     
     
 def post_to_vestaboard(message, time, last):
@@ -138,19 +143,27 @@ def post_to_vestaboard(message, time, last):
     try:
         # Format the message using the Vestaboard API
         characters = format_vestaboard_message(message, time, last)
-        # If the format is successful, send the request to update the bord
+        # If the format is successful, send the request to update the board
         if characters:
+            # New endpoint for the Read/Write Cloud API
+            url = "https://rw.vestaboard.com/"
+            
+            # Updated headers using the single X-Vestaboard-Token
+            headers = {
+                "Content-Type": "application/json",
+                "X-Vestaboard-Token": X-VESTABOARD-TOKEN
+            }
+            
             response = requests.post(
-                f"https://subscriptions.vestaboard.com/subscriptions/{SUBSCRIPTION_ID}/message",
-                headers={"Content-Type": "application/json",
-                        "x-vestaboard-api-key": X_VESTABOARD_API_KEY,
-                        "x-vestaboard-api-secret": X_VESTABOARD_API_SECRET},
+                url,
+                headers=headers,
                 json={"characters": characters}
             )
             if response.status_code != 200:
                 raise Exception(f"Failed to update Vestaboard: {response.status_code}")
     except Exception as e:
         raise e
+
 
 def schedule_trips(trips):
     '''Schedule jobs in the store. Expects a list of all trips'''
