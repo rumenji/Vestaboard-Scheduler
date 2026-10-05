@@ -5,20 +5,28 @@ from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
 import requests
 import datetime
 import os
+import threading
+import time as time_module
 from dotenv import load_dotenv
 from app import app
 from helpers import get_last_name, replace_sides, is_24_hour_format
 
 load_dotenv()
 
-# Load predifined environment variables
-# Vestaboard subscription ID, key, and secret - obtained from Vetaboard
-SUBSCRIPTION_ID = os.getenv("SUBSCRIPTION_ID")
-X_VESTABOARD_API_KEY = os.getenv("X-VESTABOARD-API-KEY")
-X_VESTABOARD_API_SECRET = os.getenv("X-VESTABOARD-API-SECRET")
+# Cloud API token from the Developer / API tab at web.vestaboard.com.
+# The old subscription key/secret write endpoint accepts any credentials and
+# does not update the board.
+VESTABOARD_TOKEN = os.getenv("VESTABOARD_TOKEN")
+VBML_COMPOSE_URL = "https://cloud.vestaboard.com/vbml/compose"
+MESSAGE_URL = "https://cloud.vestaboard.com/"
+# Cloud API drops messages sent more often than once every 15 seconds.
+MIN_POST_INTERVAL_SECONDS = 15
+_post_lock = threading.Lock()
+_last_post_at = 0.0
 # Default message to show when no trips are currently scheduled, and color for the border
 DEFAULT_MESSAGE = os.getenv('DEFAULT_MESSAGE')
-DEFAULT_MESSAGE_COLOR = os.getenv('DEFAULT_MESSAGE_COLOR')
+_border_color = os.getenv('DEFAULT_MESSAGE_COLOR')
+DEFAULT_MESSAGE_COLOR = int(_border_color) if _border_color and _border_color.strip().lstrip('-').isdigit() else _border_color
 # Title to display on first row - e.g "Next departures:"
 TITLE = os.getenv('TITLE')
 # Value to filter rows from the uploaded spreadhseet.
@@ -69,7 +77,7 @@ def format_vestaboard_message(message, time, last):
         if last:
             CURRENTLY_DISPLAYED_TRIPS = []
             formatted_msg = requests.post(
-                "https://vbml.vestaboard.com/compose",
+                VBML_COMPOSE_URL,
                 headers={"Content-Type": "application/json"},
                 json={"components": [{
 			                    "style": {
@@ -118,7 +126,7 @@ def format_vestaboard_message(message, time, last):
                 )
             # Send the request to the Vestaboard format API
             formatted_msg = requests.post(
-                "https://vbml.vestaboard.com/compose",
+                VBML_COMPOSE_URL,
                 headers={"Content-Type": "application/json"},
                 json={"components": [trip['msg'] for trip in CURRENTLY_DISPLAYED_TRIPS]}
             )
@@ -135,20 +143,31 @@ def post_to_vestaboard(message, time, last):
     '''Send the request to update the board.
     Expects the message to display, time until it should be displayed, and if it is the last message -
     to display the default message with proper formatting'''
+    global _last_post_at
+    if not VESTABOARD_TOKEN:
+        raise Exception(
+            "VESTABOARD_TOKEN is not set. Create a Write token in the Vestaboard web app "
+            "(Developer / API tab) and add it to the environment."
+        )
     try:
-        # Format the message using the Vestaboard API
-        characters = format_vestaboard_message(message, time, last)
-        # If the format is successful, send the request to update the bord
-        if characters:
+        with _post_lock:
+            characters = format_vestaboard_message(message, time, last)
+            if not characters:
+                return
+            wait = MIN_POST_INTERVAL_SECONDS - (time_module.monotonic() - _last_post_at)
+            if _last_post_at and wait > 0:
+                time_module.sleep(wait)
             response = requests.post(
-                f"https://subscriptions.vestaboard.com/subscriptions/{SUBSCRIPTION_ID}/message",
+                MESSAGE_URL,
                 headers={"Content-Type": "application/json",
-                        "x-vestaboard-api-key": X_VESTABOARD_API_KEY,
-                        "x-vestaboard-api-secret": X_VESTABOARD_API_SECRET},
+                        "X-Vestaboard-Token": VESTABOARD_TOKEN},
                 json={"characters": characters}
             )
+            _last_post_at = time_module.monotonic()
             if response.status_code != 200:
-                raise Exception(f"Failed to update Vestaboard: {response.status_code}")
+                raise Exception(
+                    f"Failed to update Vestaboard: {response.status_code} {response.text}"
+                )
     except Exception as e:
         raise e
 
