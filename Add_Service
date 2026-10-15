@@ -1,0 +1,16 @@
+sudo tee /etc/systemd/system/vestaboard.service >/dev/null <<'EOF'
+[Unit]
+Description=Vestaboard scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=USERNAME
+WorkingDirectory=/path/to/Vestaboard-Scheduler-main
+ExecStart=/usr/bin/gunicorn --config gunicorn_config.py app:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
