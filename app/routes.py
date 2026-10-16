@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash, get_flashed_messages
+from flask import render_template, redirect, url_for, flash
 import os
 from app import app
 import datetime
@@ -16,7 +16,6 @@ def not_found(e):
 
 @app.route('/', methods=['GET'])
 def list_jobs():
-    get_flashed_messages()
     form = FileUploadForm()
     update_form = EditTimeForm()
     return render_template('upload.html', form=form, update_form=update_form, jobs=scheduler.get_jobs())
@@ -48,10 +47,15 @@ def upload_file():
             return redirect(url_for('list_jobs'))
         except Exception as e:
             # If error before scheduling - remove the file
-            os.remove(file_path)
+            if os.path.exists(file_path):
+                os.remove(file_path)
             flash(str(e), 'danger')
-        
-    return render_template('upload.html', form=form)
+            return redirect(url_for('list_jobs'))
+
+    for errors in form.errors.values():
+        for error in errors:
+            flash(error, 'danger')
+    return redirect(url_for('list_jobs'))
 
 ##############################################################################
 # Post delete scheduled job route
@@ -90,3 +94,7 @@ def edit_job(job_id):
         except Exception as e:
             flash(str(e), 'danger')
             return redirect(url_for('list_jobs'))
+    for errors in update_form.errors.values():
+        for error in errors:
+            flash(error, 'danger')
+    return redirect(url_for('list_jobs'))
